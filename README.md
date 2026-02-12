@@ -51,6 +51,8 @@ $ curl -v http://127.0.0.1/website?test=../etc
 
 # test bypass url (status code should be 200)
 $ curl -v http://127.0.0.1/bypass?test=../etc
+
+# develop/test locally
 ```
 
 ## How it works
@@ -68,18 +70,15 @@ service and respond with 200 OK all the time.
 
 ## Configuration
 
-| Key                              | Required? | Default      | What it does                                                                                                                                                                           |
-| -------------------------------- | --------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`modSecurityUrl`**             | **yes**   | —            | URL of the OWASP / ModSecurity service (e.g. `http://modsecurity-crs.modsecurity-crs.svc:8080`).                                                                                       |
-| `timeoutMillis`                  | no        | **2000 ms**  | _Whole_ request budget (dial + request + response).                                                                                                                                    |
-| `dialTimeoutMillis`              | no        | **30000 ms** | Time limit for **establishing the TCP connection** to the ModSecurity service. If the socket isn’t connected within this window, the plugin aborts with `Bad Gateway`.                 |
-| `idleConnTimeoutMillis`          | no        | **90000 ms** | **How long an idle keep-alive socket can stay open** before it is closed and its goroutine reclaimed. Lowering this prevents a slow leak of goroutines under spiky traffic.            |
-| `maxIdleConnsPerHost`            | no        | **2**        | Upper bound on the **number of idle sockets** the plugin keeps for `modSecurityUrl`. Set higher for very high-RPS environments, lower to conserve file descriptors / conn-track slots. |
-| `jailEnabled`                    | no        | `false`      | Enables 429 “jail” for repeat offenders.                                                                                                                                               |
-| `jailTimeDurationSecs`           | no        | `3600`       | How long a client IP stays in jail (seconds).                                                                                                                                          |
-| `badRequestsThresholdCount`      | no        | `25`         | Number of 403 replies that trips the jail.                                                                                                                                             |
-| `badRequestsThresholdPeriodSecs` | no        | `600`        | Sliding-window length (seconds) for the above threshold.                                                                                                                               |
-| `unhealthyWafBackOffPeriodSecs`  | no        | `0`          | the period, in seconds, to backoff if calls to modsecurity fail. Default to 0. Default behavior is to send a 502 Bad Gateway when there are problems communicating with modsec.        |
-
-> **NOTE:** leave a field out (or set it to `0`) to use the default shown in
-> the table.
+| Key                     | Required? | Default              | What it does                                                                                                                                          |
+| ----------------------- | --------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serviceUrl`            | no        | `http://modsec:8080` | Service URL of the service container (e.g. `http://modsecurity-crs.modsecurity-crs.svc:8080`).                                                        |
+| `timeout`               | no        | `2s`                 | _Whole_ request budget (dial + request + response).                                                                                                   |
+| `dialTimeout`           | no        | `30s`                | Time limit for establishing a connection to the `serviceUrl`. If the socket isn’t connected within this window, the plugin aborts with `Bad Gateway`. |
+| `idleTimeout`           | no        | `90s`                | How long an idle keep-alive socket can stay open before it is closed. Lowering this prevents a slow leak of goroutines under spiky traffic.           |
+| `maxConns`              | no        | `4`                  | Max number of idle connections to `serviceUrl`. Set higher for very high-RPS environments, lower to conserve file descriptors / conn-track slots.     |
+| `jail.enabled`          | no        | `false`              | Enables "jail" for repeat offenders.                                                                                                                  |
+| `jail.badRequestLimit`  | no        | `25`                 | Number of `403` replies that trips the jail.                                                                                                          |
+| `jail.badRequestPeriod` | no        | `600s`               | Sliding-window length for the above threshold.                                                                                                        |
+| `jail.duration`         | no        | `1h`                 | How long a remote ip stays in jail.                                                                                                                   |
+| `backoff`               | no        | `0s`                 | The backoff period when new connections to `serviceUrl` fail.                                                                                         |

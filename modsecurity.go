@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"log"
 	"maps"
@@ -17,12 +16,27 @@ import (
 	"time"
 )
 
+// Defaults.
+var (
+	defaultServiceURL           = "http://modsec:8080"
+	defaultTimeout              = 2 * time.Second
+	defaultDialTimeout          = 30 * time.Second
+	defaultIdleTimeout          = 90 * time.Second
+	defaultJailEnabled          = false
+	defaultJailBadRequestLimit  = 25
+	defaultJailBadRequestPeriod = 600 * time.Second
+	defaultJailDuration         = 1 * time.Hour
+	defaultMaxConns             = 4
+	defaultMaxIdleConns         = 2
+	defaultBackoff              = 0 * time.Second
+)
+
 // Config the plugin configuration.
 type Config struct {
+	ServiceURL   string        `json:"serviceUrl,omitempty"`
 	Timeout      time.Duration `json:"timeout,omitempty"`
 	DialTimeout  time.Duration `json:"dialTimeout,omitempty"`
-	IdleTimeout  time.Duration `json:"idleConnTimeout,omitempty"`
-	ServiceURL   string        `json:"serviceUrl,omitempty"`
+	IdleTimeout  time.Duration `json:"idleTimeout,omitempty"`
 	Jail         *JailConfig   `json:"jail,omitempty"`
 	MaxConns     int           `json:"maxConns,omitempty"`
 	MaxIdleConns int           `json:"maxIdleConns,omitempty"`
@@ -39,18 +53,18 @@ type JailConfig struct {
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		Timeout:     2 * time.Second,
-		DialTimeout: 0,
-		IdleTimeout: 0,
+		Timeout:     defaultTimeout,
+		DialTimeout: defaultDialTimeout,
+		IdleTimeout: defaultIdleTimeout,
 		Jail: &JailConfig{
-			Enabled:          false,
-			BadRequestLimit:  25,
-			BadRequestPeriod: 600 * time.Millisecond,
-			Duration:         600 * time.Millisecond,
+			Enabled:          defaultJailEnabled,
+			BadRequestLimit:  defaultJailBadRequestLimit,
+			BadRequestPeriod: defaultJailBadRequestPeriod,
+			Duration:         defaultJailDuration,
 		},
-		MaxConns:     4,
-		MaxIdleConns: 2,
-		Backoff:      0,
+		MaxConns:     defaultMaxConns,
+		MaxIdleConns: defaultMaxIdleConns,
+		Backoff:      defaultBackoff,
 	}
 }
 
@@ -72,51 +86,21 @@ type Modsecurity struct {
 
 // New creates a new Modsecurity plugin with the given configuration.
 func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http.Handler, error) {
-	if len(cfg.ServiceURL) == 0 {
-		return nil, fmt.Errorf("serviceUrl cannot be empty")
-	}
-	// whole-request timeout
-	var timeout time.Duration
-	if cfg.Timeout == 0 {
-		timeout = 2 * time.Second
-	} else {
-		timeout = cfg.Timeout
-	}
-	// dial timeout
-	dialTimeout := 30 * time.Second
-	if cfg.DialTimeout > 0 {
-		dialTimeout = cfg.DialTimeout
-	}
 	dialer := &net.Dialer{
-		Timeout:   dialTimeout,
+		Timeout:   cfg.DialTimeout,
 		KeepAlive: 30 * time.Second,
-	}
-	// idle keep-alive TTL
-	idleTimeout := 90 * time.Second
-	if cfg.IdleTimeout > 0 {
-		idleTimeout = cfg.IdleTimeout
-	}
-	// per-host idle-pool cap
-	perHost := 2
-	if cfg.MaxIdleConns > 0 {
-		perHost = cfg.MaxIdleConns
-	}
-	// new: active-connection cap
-	active := 4
-	if cfg.MaxConns > 0 {
-		active = cfg.MaxConns
 	}
 	return &Modsecurity{
 		serviceURL: cfg.ServiceURL,
 		next:       next,
 		name:       name,
 		cl: &http.Client{
-			Timeout: timeout,
+			Timeout: cfg.Timeout,
 			Transport: &http.Transport{
 				MaxIdleConns:          100,
-				MaxConnsPerHost:       active,
-				MaxIdleConnsPerHost:   perHost,
-				IdleConnTimeout:       idleTimeout,
+				MaxConnsPerHost:       cfg.MaxConns,
+				MaxIdleConnsPerHost:   cfg.MaxIdleConns,
+				IdleConnTimeout:       cfg.IdleTimeout,
 				TLSHandshakeTimeout:   10 * time.Second,
 				ExpectContinueTimeout: 1 * time.Second,
 				TLSClientConfig: &tls.Config{
@@ -143,7 +127,7 @@ func (m *Modsecurity) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// jail check
 	if m.jail.Enabled {
 		m.rw.RLock()
-		if m.clientJailed(ip) {
+		if m.isJailed(ip) {
 			m.rw.RUnlock()
 			m.l.Printf("client %q is jailed", ip)
 			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
@@ -248,7 +232,7 @@ func (m *Modsecurity) recordOffense(ip string) {
 	}
 }
 
-func (m *Modsecurity) clientJailed(ip string) bool {
+func (m *Modsecurity) isJailed(ip string) bool {
 	if t, exists := m.jailRelease[ip]; exists {
 		if time.Now().Before(t) {
 			return true
