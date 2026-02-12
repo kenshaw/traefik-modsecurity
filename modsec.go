@@ -133,7 +133,8 @@ func (m *Modsec) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		m.l.Printf("configuration: %s", string(buf))
 	})
-	if isWebsocket(req) {
+	// if websocket
+	if slices.Contains(req.Header["Upgrade"], "websocket") {
 		m.next.ServeHTTP(w, req)
 		return
 	}
@@ -210,20 +211,6 @@ func (m *Modsec) markUnhealthy() {
 	m.unhealthyMu.Unlock()
 }
 
-func isWebsocket(req *http.Request) bool {
-	return slices.Contains(req.Header["Upgrade"], "websocket")
-}
-
-func forward(w http.ResponseWriter, res *http.Response) {
-	for k, h := range res.Header {
-		for _, v := range h {
-			w.Header().Add(k, v)
-		}
-	}
-	w.WriteHeader(res.StatusCode)
-	io.Copy(w, res.Body)
-}
-
 func (m *Modsec) recordOffense(ip string) {
 	m.rw.Lock()
 	defer m.rw.Unlock()
@@ -263,6 +250,16 @@ func (m *Modsec) release(ip string) {
 	delete(m.jailMap, ip)
 	delete(m.jailRelease, ip)
 	m.l.Printf("client %q released from jail", ip)
+}
+
+func forward(w http.ResponseWriter, res *http.Response) {
+	for k, h := range res.Header {
+		for _, v := range h {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(res.StatusCode)
+	io.Copy(w, res.Body)
 }
 
 // config wraps the configuration values.
@@ -347,7 +344,8 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 	return def, nil
 }
 
-// mapsCopy is a quick implementation of copying all key/value
+// mapsCopy is a quick implementation of copying all key/value pairs from
+// headers, as traefik's yaegi doesn't support generics.
 func mapsCopy(dst, src http.Header) {
 	for k, z := range src {
 		v := make([]string, len(src[k]))
