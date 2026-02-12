@@ -1,4 +1,4 @@
-name: traefik_modsecurity
+name: traefik_modsec
 services:
   traefik:
     image: docker.io/library/traefik:latest
@@ -9,8 +9,8 @@ services:
       - --accesslog=true
       - --api.dashboard=true
       - --api.insecure=true
-      - --experimental.plugins.modsecurity.modulename=github.com/kenshaw/traefik-modsecurity
-      - --experimental.plugins.modsecurity.version=v0.1.0
+      - --experimental.plugins.modsec.modulename=github.com/kenshaw/traefik-modsec
+      - --experimental.plugins.modsec.version=v0.1.0
       - --providers.docker=true
       - --entrypoints.http.address=:80
     volumes:
@@ -18,11 +18,11 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.services.traefik.loadbalancer.server.port=8080
-      - traefik.http.middlewares.waf.plugin.modsecurity.jail.enabled=true
+      - traefik.http.middlewares.modsec.plugin.modsec.jail.enabled=true
       # use traefiks built-in maxRequestBodyBytes middleware - there's no need for us to bake this ourselves
       - traefik.http.middlewares.limit.buffering.maxRequestBodyBytes=1048576
 
-  waf:
+  modsec:
     image: docker.io/owasp/modsecurity-crs:nginx
     environment:
       - PARANOIA=1
@@ -33,15 +33,13 @@ services:
       - MODSEC_AUDIT_LOG_FORMAT=JSON
       - MODSEC_RULE_ENGINE=On
 
-  dummy:
-    image: traefik/whoami
-
-  website-with-waf:
+  website-with-modsec:
     image: docker.io/traefik/whoami
     labels:
       - traefik.enable=true
-      - traefik.http.routers.website-with-waf.rule=PathPrefix(`/website`)
-      - traefik.http.routers.website-with-waf.middlewares=waf@docker
+      - traefik.http.routers.website-with-modsec.rule=PathPrefix(`/website`)
+      - traefik.http.routers.website-with-modsec.middlewares=modsec@docker
+
   website:
     image: docker.io/traefik/whoami
     labels:
